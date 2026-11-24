@@ -1,0 +1,210 @@
+
+# EXPERIMENT 8: POWER CONSUMPTION PREDICTION USING LSTM AND BIDIRECTIONAL LSTM
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import tensorflow as tf
+import warnings
+warnings.filterwarnings("ignore")
+
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Bidirectional
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+
+# 1. Load Dataset
+# Keep powerconsumption.csv in the same folder as your notebook
+df = pd.read_csv("powerconsumption.csv")
+
+print("First 5 Rows:")
+print(df.head())
+
+print("\nDataset Information:")
+print(df.info())
+
+print("\nColumns:")
+print(df.columns)
+
+print("\nMissing Values:")
+print(df.isnull().sum())
+
+# 2. Convert Datetime
+df["Datetime"] = pd.to_datetime(df["Datetime"])
+df = df.sort_values("Datetime")
+
+# 3. Select Power Consumption
+target = df[["PowerConsumption_Zone1"]]
+
+print("\nTarget Data:")
+print(target.head())
+
+# 4. Normalize Data
+scaler = MinMaxScaler()
+scaled_data = scaler.fit_transform(target)
+
+# 5. Split Training and Testing Data
+train_size = int(len(scaled_data) * 0.8)
+
+train = scaled_data[:train_size]
+test = scaled_data[train_size:]
+
+print("\nTraining Shape:", train.shape)
+print("Testing Shape:", test.shape)
+
+# 6. Create Sequences
+def create_sequences(data, lookback):
+    X, y = [], []
+
+    for i in range(len(data) - lookback):
+        X.append(data[i:i + lookback])
+        y.append(data[i + lookback])
+
+    return np.array(X), np.array(y)
+
+lookback = 30
+
+X_train, y_train = create_sequences(train, lookback)
+X_test, y_test = create_sequences(test, lookback)
+
+print("\nX Train Shape:", X_train.shape)
+print("Y Train Shape:", y_train.shape)
+print("X Test Shape:", X_test.shape)
+print("Y Test Shape:", y_test.shape)
+
+# 7. Build LSTM Model
+lstm_model = Sequential([
+    tf.keras.layers.Input(shape=(30, 1)),
+    LSTM(64),
+    Dense(32, activation="relu"),
+    Dense(1)
+])
+
+lstm_model.summary()
+
+lstm_model.compile(
+    optimizer="adam",
+    loss="mse",
+    metrics=["mae"]
+)
+
+# 8. Callbacks
+callbacks = [
+    EarlyStopping(
+        monitor="val_loss",
+        patience=5,
+        restore_best_weights=True
+    ),
+    ReduceLROnPlateau(
+        monitor="val_loss",
+        factor=0.5,
+        patience=3,
+        verbose=1
+    )
+]
+
+# 9. Train LSTM
+print("\nTraining LSTM Model...")
+
+history_lstm = lstm_model.fit(
+    X_train, y_train,
+    validation_data=(X_test, y_test),
+    epochs=10,
+    batch_size=32,
+    callbacks=callbacks
+)
+
+loss_lstm, mae_lstm = lstm_model.evaluate(
+    X_test, y_test, verbose=0
+)
+
+print("\nLSTM Loss:", loss_lstm)
+print("LSTM MAE:", mae_lstm)
+
+# 10. Build Bidirectional LSTM
+bilstm_model = Sequential([
+    tf.keras.layers.Input(shape=(30, 1)),
+    Bidirectional(LSTM(64)),
+    Dense(32, activation="relu"),
+    Dense(1)
+])
+
+bilstm_model.summary()
+
+bilstm_model.compile(
+    optimizer="adam",
+    loss="mse",
+    metrics=["mae"]
+)
+
+# 11. Train Bidirectional LSTM
+print("\nTraining Bidirectional LSTM...")
+
+history_bilstm = bilstm_model.fit(
+    X_train, y_train,
+    validation_data=(X_test, y_test),
+    epochs=10,
+    batch_size=32,
+    callbacks=callbacks
+)
+
+loss_bilstm, mae_bilstm = bilstm_model.evaluate(
+    X_test, y_test, verbose=0
+)
+
+print("\nBidirectional LSTM Loss:", loss_bilstm)
+print("Bidirectional LSTM MAE:", mae_bilstm)
+
+# 12. Model Comparison
+comparison = pd.DataFrame({
+    "Model": ["LSTM", "Bidirectional LSTM"],
+    "Loss": [loss_lstm, loss_bilstm],
+    "MAE": [mae_lstm, mae_bilstm]
+})
+
+print("\nMODEL COMPARISON")
+print(comparison)
+
+# 13. LSTM Prediction
+pred_lstm = lstm_model.predict(X_test)
+
+pred_lstm = scaler.inverse_transform(pred_lstm)
+actual = scaler.inverse_transform(y_test)
+
+plt.figure(figsize=(15, 5))
+plt.plot(actual, label="Actual")
+plt.plot(pred_lstm, label="Predicted")
+plt.legend()
+plt.title("LSTM Prediction")
+plt.xlabel("Time")
+plt.ylabel("Power Consumption")
+plt.grid(True)
+plt.show()
+
+# 14. Bidirectional LSTM Prediction
+pred_bilstm = bilstm_model.predict(X_test)
+
+pred_bilstm = scaler.inverse_transform(pred_bilstm)
+
+plt.figure(figsize=(15, 5))
+plt.plot(actual, label="Actual")
+plt.plot(pred_bilstm, label="Bidirectional LSTM")
+plt.legend()
+plt.title("Bidirectional LSTM Prediction")
+plt.xlabel("Time")
+plt.ylabel("Power Consumption")
+plt.grid(True)
+plt.show()
+
+# 15. Final Prediction Graph
+plt.figure(figsize=(15, 5))
+plt.plot(actual, label="Actual", linewidth=2)
+plt.plot(pred_lstm, label="Predicted", linestyle="--")
+plt.legend()
+plt.title("LSTM Prediction")
+plt.xlabel("Time")
+plt.ylabel("Power Consumption")
+plt.grid(True)
+plt.show()
+
+print("\nEXPERIMENT 8 COMPLETED SUCCESSFULLY!")
