@@ -1,0 +1,241 @@
+
+# EXPERIMENT 9: SENTIMENT ANALYSIS USING LSTM AND GRU
+
+import tensorflow as tf
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+
+from tensorflow.keras.datasets import imdb
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Embedding, LSTM, GRU, Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.metrics import confusion_matrix, classification_report
+
+# 1. Sample text tokenization
+sample_reviews = [
+    "This movie is fantastic",
+    "I loved this movie",
+    "Worst movie ever",
+    "The acting was amazing",
+    "The film was boring"
+]
+
+tokenizer = Tokenizer(num_words=10000)
+tokenizer.fit_on_texts(sample_reviews)
+
+print("Word Index:")
+print(tokenizer.word_index)
+
+sequences = tokenizer.texts_to_sequences(sample_reviews)
+print("\nTokenized Sequences:")
+print(sequences)
+
+padded_sequences = pad_sequences(
+    sequences, maxlen=6, padding="post", truncating="post"
+)
+print("\nPadded Sequences:")
+print(padded_sequences)
+
+# 2. Load IMDB dataset
+vocab_size = 10000
+
+(X_train, y_train), (X_test, y_test) = imdb.load_data(
+    num_words=vocab_size
+)
+
+print("\nTraining Samples:", X_train.shape)
+print("Testing Samples:", X_test.shape)
+
+# 3. Decode first review
+word_index = imdb.get_word_index()
+
+reverse_word_index = {
+    value + 3: key for key, value in word_index.items()
+}
+
+reverse_word_index[0] = "<PAD>"
+reverse_word_index[1] = "<START>"
+reverse_word_index[2] = "<UNK>"
+reverse_word_index[3] = "<UNUSED>"
+
+decoded_review = " ".join(
+    reverse_word_index.get(i, "?") for i in X_train[0]
+)
+
+print("\nDecoded Review:")
+print(decoded_review)
+
+# 4. Pad sequences
+max_length = 200
+
+X_train = pad_sequences(
+    X_train, maxlen=max_length,
+    padding="post", truncating="post"
+)
+
+X_test = pad_sequences(
+    X_test, maxlen=max_length,
+    padding="post", truncating="post"
+)
+
+print("\nTraining Shape:", X_train.shape)
+print("Testing Shape:", X_test.shape)
+
+# 5. Build LSTM model
+embedding_dim = 128
+
+lstm_model = Sequential([
+    Embedding(input_dim=vocab_size, output_dim=embedding_dim),
+    LSTM(128),
+    Dropout(0.5),
+    Dense(64, activation="relu"),
+    Dense(1, activation="sigmoid")
+])
+
+lstm_model.compile(
+    optimizer="adam",
+    loss="binary_crossentropy",
+    metrics=["accuracy"]
+)
+
+lstm_model.summary()
+
+# 6. Train LSTM
+print("\nTraining LSTM Model...")
+
+history_lstm = lstm_model.fit(
+    X_train, y_train,
+    validation_data=(X_test, y_test),
+    epochs=5,
+    batch_size=64,
+    verbose=1
+)
+
+loss_lstm, accuracy_lstm = lstm_model.evaluate(
+    X_test, y_test, verbose=0
+)
+
+print("\nLSTM Test Loss:", loss_lstm)
+print("LSTM Test Accuracy:", accuracy_lstm)
+
+# 7. Build GRU model
+gru_model = Sequential([
+    Embedding(input_dim=vocab_size, output_dim=embedding_dim),
+    GRU(128),
+    Dropout(0.5),
+    Dense(64, activation="relu"),
+    Dense(1, activation="sigmoid")
+])
+
+gru_model.compile(
+    optimizer="adam",
+    loss="binary_crossentropy",
+    metrics=["accuracy"]
+)
+
+gru_model.summary()
+
+# 8. Train GRU
+early_stop = EarlyStopping(
+    monitor="val_loss",
+    patience=2,
+    restore_best_weights=True
+)
+
+print("\nTraining GRU Model...")
+
+history_gru = gru_model.fit(
+    X_train, y_train,
+    validation_data=(X_test, y_test),
+    epochs=10,
+    batch_size=64,
+    callbacks=[early_stop],
+    verbose=1
+)
+
+loss_gru, accuracy_gru = gru_model.evaluate(
+    X_test, y_test, verbose=0
+)
+
+print("\nGRU Test Loss:", loss_gru)
+print("GRU Test Accuracy:", accuracy_gru)
+
+# 9. Compare models
+comparison = pd.DataFrame({
+    "Model": ["LSTM", "GRU"],
+    "Loss": [loss_lstm, loss_gru],
+    "Accuracy": [accuracy_lstm, accuracy_gru]
+})
+
+print("\nModel Comparison:")
+print(comparison)
+
+# 10. Predictions
+y_pred_lstm = (lstm_model.predict(X_test) > 0.5).astype(int)
+y_pred_gru = (gru_model.predict(X_test) > 0.5).astype(int)
+
+# 11. LSTM Confusion Matrix
+cm_lstm = confusion_matrix(y_test, y_pred_lstm)
+
+plt.figure(figsize=(6, 5))
+plt.imshow(cm_lstm, cmap="Blues")
+plt.title("LSTM Confusion Matrix")
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.colorbar()
+plt.show()
+
+# 12. GRU Confusion Matrix
+cm_gru = confusion_matrix(y_test, y_pred_gru)
+
+plt.figure(figsize=(6, 5))
+plt.imshow(cm_gru, cmap="Greens")
+plt.title("GRU Confusion Matrix")
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.colorbar()
+plt.show()
+
+# 13. Classification Reports
+print("\n========== LSTM ==========")
+print(classification_report(
+    y_test, y_pred_lstm,
+    target_names=["Negative", "Positive"]
+))
+
+print("\n========== GRU ==========")
+print(classification_report(
+    y_test, y_pred_gru,
+    target_names=["Negative", "Positive"]
+))
+
+# 14. Accuracy Graph
+plt.figure(figsize=(8, 5))
+plt.plot(history_lstm.history["accuracy"], label="LSTM Train")
+plt.plot(history_lstm.history["val_accuracy"], label="LSTM Validation")
+plt.plot(history_gru.history["accuracy"], label="GRU Train")
+plt.plot(history_gru.history["val_accuracy"], label="GRU Validation")
+plt.xlabel("Epoch")
+plt.ylabel("Accuracy")
+plt.title("LSTM vs GRU Accuracy")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# 15. Loss Graph
+plt.figure(figsize=(8, 5))
+plt.plot(history_lstm.history["loss"], label="LSTM Train")
+plt.plot(history_lstm.history["val_loss"], label="LSTM Validation")
+plt.plot(history_gru.history["loss"], label="GRU Train")
+plt.plot(history_gru.history["val_loss"], label="GRU Validation")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.title("LSTM vs GRU Loss")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+print("\nEXPERIMENT 9 COMPLETED SUCCESSFULLY!")
