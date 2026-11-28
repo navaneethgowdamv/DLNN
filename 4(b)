@@ -1,0 +1,70 @@
+import numpy as np, torch
+import matplotlib.pyplot as plt
+from PIL import Image
+from torchvision import models, transforms
+from lime import lime_image
+from skimage.segmentation import mark_boundaries
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Device:", device)
+
+weights = models.ResNet50_Weights.DEFAULT
+model = models.resnet50(weights=weights).to(device).eval()
+class_names = weights.meta["categories"]
+
+preprocess = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+
+try:
+    from google.colab import files
+    uploaded = files.upload()
+    IMG_PATH = list(uploaded.keys())[0]
+except ImportError:
+    IMG_PATH = "your_image.jpg"
+
+img_pil = Image.open(IMG_PATH).convert("RGB").resize((224, 224))
+img_lime = np.array(img_pil).astype(np.float64) / 255.0
+
+plt.imshow(img_pil); plt.axis("off"); plt.title("Input image"); plt.show()
+
+with torch.no_grad():
+    p = model(preprocess(img_pil).unsqueeze(0).to(device)).softmax(1)[0].cpu()
+top_p, top_i = p.topk(5)
+for pr, i in zip(top_p, top_i):
+    print(f"{class_names[i]:30s} {pr:.3f}")
+
+def batch_predict(images, bs=32):
+    model.eval()
+    out = []
+    for i in range(0, len(images), bs):
+        chunk = images[i:i + bs]
+        batch = torch.stack([preprocess(Image.fromarray((im * 255).astype(np.uint8)))
+                             for im in chunk]).to(device)
+        with torch.no_grad():
+            out.append(model(batch).softmax(dim=1).cpu().numpy())
+    return np.concatenate(out)
+
+explainer = lime_image.LimeImageExplainer(random_state=42)
+explanation = explainer.explain_instance(
+    img_lime, batch_predict,
+    top_labels=5, hide_color=0,
+    num_samples=500
+)
+
+label = explanation.top_labels[0]
+name = class_names[label]
+
+temp1, mask1 = explanation.get_image_and_mask(
+    label, positive_only=True, num_features=5, hide_rest=False)
+
+temp2, mask2 = explanation.get_image_and_mask(
+    label, positive_only=False, num_features=10, hide_rest=False)
+
+plt.figure(figsize=(15, 5))
+plt.subplot(1, 3, 1); plt.imshow(img_pil); plt.title(f"Original\nPredicted: {name}"); plt.axis("off")
+plt.subplot(1, 3, 2); plt.imshow(mark_boundaries(temp1, mask1)); plt.title("LIME: regions supporting the prediction"); plt.axis("off")
+plt.subplot(1, 3, 3); plt.imshow(mark_boundaries(temp2, mask2)); plt.title("Green = supports, Red = opposes"); plt.axis("off")
+plt.tight_layout(); plt.show()
